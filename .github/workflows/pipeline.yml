@@ -10,6 +10,18 @@ jobs:
   pipeline:
     runs-on: ubuntu-latest
 
+    env:
+      MAX_EVENTS: 10
+      MAX_FIGHTERS: 50
+      FIGHTER_LOG_EVERY: 10
+      RATE_LIMIT_SLEEP: 0.5
+      RATE_LIMIT_SLEEP_FIGHT: 0.0
+
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      DATABRICKS_USER: ${{ secrets.DATABRICKS_USER }}
+      DATABRICKS_JOB_ID: ${{ secrets.DATABRICKS_JOB_ID }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -41,32 +53,40 @@ jobs:
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          DATABRICKS_USER: ${{ secrets.DATABRICKS_USER }}
         run: |
           RUN_DATE=$(date -u +%F)
-          LOCAL_ZIP=$(ls -1 out/*.zip | head -n 1)
 
-          # caminho onde o arquivo vai ficar no Workspace Files
-          WS_DIR="/Workspace/Users/${{ secrets.DATABRICKS_USER }}/ufc-lakehouse/landing/dt=${RUN_DATE}"
+          # acha o zip dentro da pasta do run
+          LOCAL_ZIP=$(find "out/dt=${RUN_DATE}" -maxdepth 3 -type f -name "*.zip" | head -n 1)
+          echo "LOCAL_ZIP=${LOCAL_ZIP}"
+          test -f "${LOCAL_ZIP}"
+
+          # Paths corretos para Files API: /Users/<user>/...
+          WS_DIR="/Users/${DATABRICKS_USER}/ufc-lakehouse/landing/dt=${RUN_DATE}"
           WS_FILE="${WS_DIR}/ufc_landing.zip"
 
-          # 1) cria diretório (WSFS)
+          # cria diretório
           curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/directories${WS_DIR}" \
             -H "Authorization: Bearer ${DATABRICKS_TOKEN}"
 
-          # 2) upload do arquivo (WSFS)
+          # upload do zip
           curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/files${WS_FILE}?overwrite=true" \
             -H "Authorization: Bearer ${DATABRICKS_TOKEN}" \
             -H "Content-Type: application/octet-stream" \
             --data-binary "@${LOCAL_ZIP}"
+
+          echo "WS_FILE=${WS_FILE}"
 
       - name: Trigger Databricks job
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           DATABRICKS_JOB_ID: ${{ secrets.DATABRICKS_JOB_ID }}
+          DATABRICKS_USER: ${{ secrets.DATABRICKS_USER }}
         run: |
           RUN_DATE=$(date -u +%F)
-          LANDING_ZIP="dbfs:/tmp/ufc/landing/dt=${RUN_DATE}/ufc_landing.zip"
+          LANDING_ZIP="/Users/${DATABRICKS_USER}/ufc-lakehouse/landing/dt=${RUN_DATE}/ufc_landing.zip"
 
           curl -sS --location --request POST "https://${DATABRICKS_HOST}/api/2.2/jobs/run-now" \
             --header "Authorization: Bearer ${DATABRICKS_TOKEN}" \
