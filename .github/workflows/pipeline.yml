@@ -28,7 +28,7 @@ jobs:
           MAX_EVENTS: ${{ secrets.MAX_EVENTS }}
         run: |
           export RUN_DATE=$(date -u +%F)
-          python tools/extract_landing.py
+          python -m tools.extract_landing
           ls -lah out/dt=${RUN_DATE}
 
       - name: Upload to DBFS
