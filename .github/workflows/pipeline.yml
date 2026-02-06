@@ -23,6 +23,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Debug paths
+        run: |
+          pwd
+          ls -la
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          
       - name: Extract landing ZIP
         env:
           MAX_EVENTS: ${{ secrets.MAX_EVENTS }}
