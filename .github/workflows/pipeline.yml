@@ -37,20 +37,27 @@ jobs:
           python -m tools.extract_landing
           ls -lah out/dt=${RUN_DATE}
 
-      - name: Upload to DBFS
+      - name: Upload ZIP to Workspace Files (WSFS)
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
           RUN_DATE=$(date -u +%F)
-          LOCAL_ZIP="out/dt=${RUN_DATE}/ufc_landing.zip"
-          DBFS_PATH="/Workspace/Users/joao.vitorasso/ufc/landing/dt=${RUN_DATE}/ufc_landing.zip"
+          LOCAL_ZIP=$(ls -1 out/*.zip | head -n 1)
 
-          curl -sS --location --request POST "https://${DATABRICKS_HOST}/api/2.0/dbfs/put" \
-            --header "Authorization: Bearer ${DATABRICKS_TOKEN}" \
-            --form "contents=@${LOCAL_ZIP}" \
-            --form "path=${DBFS_PATH}" \
-            --form "overwrite=true"
+          # caminho onde o arquivo vai ficar no Workspace Files
+          WS_DIR="/Workspace/Users/${{ secrets.DATABRICKS_USER }}/ufc-lakehouse/landing/dt=${RUN_DATE}"
+          WS_FILE="${WS_DIR}/ufc_landing.zip"
+
+          # 1) cria diretório (WSFS)
+          curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/directories${WS_DIR}" \
+            -H "Authorization: Bearer ${DATABRICKS_TOKEN}"
+
+          # 2) upload do arquivo (WSFS)
+          curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/files${WS_FILE}?overwrite=true" \
+            -H "Authorization: Bearer ${DATABRICKS_TOKEN}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@${LOCAL_ZIP}"
 
       - name: Trigger Databricks job
         env:
