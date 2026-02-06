@@ -6,8 +6,8 @@ class UFCConfig:
     bronze_root: str = "dbfs:/FileStore/ufc/bronze"
 
     # URLs do ufcstats (use https para evitar bloqueio de http em alguns ambientes)
-    completed_url: str = "https://ufcstats.com/statistics/events/completed?page=all"
-    upcoming_url: str  = "https://ufcstats.com/statistics/events/upcoming?page=all"
+    completed_url: str = "http://ufcstats.com/statistics/events/completed?page=all"
+    upcoming_url: str  = "http://ufcstats.com/statistics/events/upcoming?page=all"
 
     # HTTP settings
     user_agent: str = "Mozilla/5.0"
