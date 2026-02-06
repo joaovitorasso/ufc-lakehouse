@@ -28,7 +28,7 @@ jobs:
           pwd
           ls -la
           echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          
+
       - name: Extract landing ZIP
         env:
           MAX_EVENTS: ${{ secrets.MAX_EVENTS }}
@@ -44,7 +44,7 @@ jobs:
         run: |
           RUN_DATE=$(date -u +%F)
           LOCAL_ZIP="out/dt=${RUN_DATE}/ufc_landing.zip"
-          DBFS_PATH="/tmp/ufc/landing/dt=${RUN_DATE}/ufc_landing.zip"
+          DBFS_PATH="/Workspace/Users/joao.vitorasso/ufc/landing/dt=${RUN_DATE}/ufc_landing.zip"
 
           curl -sS --location --request POST "https://${DATABRICKS_HOST}/api/2.0/dbfs/put" \
             --header "Authorization: Bearer ${DATABRICKS_TOKEN}" \
