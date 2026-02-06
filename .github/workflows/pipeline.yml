@@ -1,0 +1,67 @@
+name: UFC Lakehouse (extract -> upload -> run)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 07:00 no Brasil (America/Sao_Paulo) ~ 10:00 UTC
+    - cron: "0 10 * * *"
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Extract landing ZIP
+        env:
+          MAX_EVENTS: ${{ secrets.MAX_EVENTS }}
+        run: |
+          export RUN_DATE=$(date -u +%F)
+          python tools/extract_landing.py
+          ls -lah out/dt=${RUN_DATE}
+
+      - name: Upload to DBFS
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+        run: |
+          RUN_DATE=$(date -u +%F)
+          LOCAL_ZIP="out/dt=${RUN_DATE}/ufc_landing.zip"
+          DBFS_PATH="/tmp/ufc/landing/dt=${RUN_DATE}/ufc_landing.zip"
+
+          curl -sS --location --request POST "https://${DATABRICKS_HOST}/api/2.0/dbfs/put" \
+            --header "Authorization: Bearer ${DATABRICKS_TOKEN}" \
+            --form "contents=@${LOCAL_ZIP}" \
+            --form "path=${DBFS_PATH}" \
+            --form "overwrite=true"
+
+      - name: Trigger Databricks job
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          DATABRICKS_JOB_ID: ${{ secrets.DATABRICKS_JOB_ID }}
+        run: |
+          RUN_DATE=$(date -u +%F)
+          LANDING_ZIP="dbfs:/tmp/ufc/landing/dt=${RUN_DATE}/ufc_landing.zip"
+
+          curl -sS --location --request POST "https://${DATABRICKS_HOST}/api/2.2/jobs/run-now" \
+            --header "Authorization: Bearer ${DATABRICKS_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --data "{
+              \"job_id\": ${DATABRICKS_JOB_ID},
+              \"notebook_params\": {
+                \"landing_zip\": \"${LANDING_ZIP}\",
+                \"run_date\": \"${RUN_DATE}\"
+              }
+            }"
