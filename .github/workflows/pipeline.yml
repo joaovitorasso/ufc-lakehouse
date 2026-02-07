@@ -11,11 +11,11 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      MAX_EVENTS: 10
-      MAX_FIGHTERS: 50
-      FIGHTER_LOG_EVERY: 10
-      RATE_LIMIT_SLEEP: 0.0
-      RATE_LIMIT_SLEEP_FIGHT: 0.0
+      MAX_EVENTS: "10"
+      MAX_FIGHTERS: "50"
+      FIGHTER_LOG_EVERY: "10"
+      RATE_LIMIT_SLEEP: "0.0"
+      RATE_LIMIT_SLEEP_FIGHT: "0.0"
 
       DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
       DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
@@ -35,28 +35,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # ✅ RUN_DATE único para o job inteiro (vale para todos os steps)
+      - name: Set RUN_DATE
+        run: echo "RUN_DATE=$(date -u +%F)" >> $GITHUB_ENV
+
       - name: Debug paths
         run: |
+          echo "RUN_DATE=${RUN_DATE}"
           pwd
           ls -la
           echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
 
-      - name: Extract landing ZIP
-        env:
-          MAX_EVENTS: ${{ secrets.MAX_EVENTS }}
+      - name: Extract landing
         run: |
-          export RUN_DATE=$(date -u +%F)
+          echo "RUN_DATE=${RUN_DATE}"
           python -m tools.extract_landing
-          ls -lah out/dt=${RUN_DATE}
+          ls -lah "out/dt=${RUN_DATE}"
 
       - name: Upload landing files to Workspace Files (WSFS)
-        env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-          DATABRICKS_USER: ${{ secrets.DATABRICKS_USER }}
         run: |
           set -euo pipefail
-          RUN_DATE=${RUN_DATE:-$(date -u +%F)}
 
           LOCAL_DIR="out/dt=${RUN_DATE}"
           echo "LOCAL_DIR=${LOCAL_DIR}"
@@ -65,35 +63,23 @@ jobs:
           WS_DIR="/Users/${DATABRICKS_USER}/ufc-lakehouse/landing/dt=${RUN_DATE}"
           echo "WS_DIR=${WS_DIR}"
 
-          # helper: URL-encode (python é o jeito mais simples no runner)
-          urlencode() {
-            python - << 'PY'
-      import sys, urllib.parse
-      print(urllib.parse.quote(sys.argv[1], safe=""))
-      PY
+          # URL-encode helper
+          enc() {
+            python -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=''))" "$1"
           }
 
-          WS_DIR_ENC=$(python - <<PY
-      import urllib.parse
-      print(urllib.parse.quote("${WS_DIR}", safe=""))
-      PY
-          )
+          WS_DIR_ENC="$(enc "${WS_DIR}")"
 
-          # 1) cria diretório
           echo "Creating dir..."
           curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/directories?path=${WS_DIR_ENC}" \
             -H "Authorization: Bearer ${DATABRICKS_TOKEN}"
 
-          # 2) upload de cada arquivo (events.json, fights.jsonl, fighters.jsonl)
           for f in events.json fights.jsonl fighters.jsonl; do
             LOCAL_FILE="${LOCAL_DIR}/${f}"
             test -f "${LOCAL_FILE}"
+
             WS_FILE="${WS_DIR}/${f}"
-            WS_FILE_ENC=$(python - <<PY
-      import urllib.parse
-      print(urllib.parse.quote("${WS_FILE}", safe=""))
-      PY
-            )
+            WS_FILE_ENC="$(enc "${WS_FILE}")"
 
             echo "Uploading ${LOCAL_FILE} -> ${WS_FILE}"
             curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/files?path=${WS_FILE_ENC}&overwrite=true" \
@@ -104,17 +90,10 @@ jobs:
 
           echo "✅ Upload finished"
 
-      - name: Set RUN_DATE
-        run: echo "RUN_DATE=$(date -u +%F)" >> $GITHUB_ENV
-
       - name: Trigger Databricks job
-        env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-          DATABRICKS_JOB_ID: ${{ secrets.DATABRICKS_JOB_ID }}
-          DATABRICKS_USER: ${{ secrets.DATABRICKS_USER }}
-          RUN_DATE: ${{ env.RUN_DATE }}
         run: |
+          set -euo pipefail
+
           LANDING_DIR="/Users/${DATABRICKS_USER}/ufc-lakehouse/landing/dt=${RUN_DATE}"
 
           cat > payload.json <<EOF
@@ -129,7 +108,7 @@ jobs:
           EOF
 
           echo "Payload (token masked):"
-          cat payload.json | sed 's/"db_token": ".*"/"db_token": "***"/'
+          sed 's/"db_token": ".*"/"db_token": "***"/' payload.json
 
           echo "Calling run-now..."
           curl -sS --location --request POST "https://${DATABRICKS_HOST}/api/2.2/jobs/run-now" \
