@@ -49,34 +49,48 @@ jobs:
           python -m tools.extract_landing
           ls -lah out/dt=${RUN_DATE}
 
-      - name: Upload ZIP to Workspace Files (WSFS)
+      - name: Upload landing files to Workspace Files (WSFS)
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           DATABRICKS_USER: ${{ secrets.DATABRICKS_USER }}
         run: |
-          RUN_DATE=$(date -u +%F)
+          RUN_DATE=${RUN_DATE:-$(date -u +%F)}
 
-          # acha o zip dentro da pasta do run
-          LOCAL_ZIP=$(find "out/dt=${RUN_DATE}" -maxdepth 3 -type f -name "*.zip" | head -n 1)
-          echo "LOCAL_ZIP=${LOCAL_ZIP}"
-          test -f "${LOCAL_ZIP}"
+          OUT_DIR="out/dt=${RUN_DATE}"
 
-          # Paths corretos para Files API: /Users/<user>/...
+          EVENTS_FILE="${OUT_DIR}/events.json"
+          FIGHTS_FILE="${OUT_DIR}/fights.jsonl"
+          FIGHTERS_FILE="${OUT_DIR}/fighters.jsonl"
+
+          test -f "${EVENTS_FILE}"
+          test -f "${FIGHTS_FILE}"
+          test -f "${FIGHTERS_FILE}"
+
           WS_DIR="/Users/${DATABRICKS_USER}/ufc-lakehouse/landing/dt=${RUN_DATE}"
-          WS_FILE="${WS_DIR}/ufc_landing.zip"
 
-          # cria diretório
           curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/directories${WS_DIR}" \
             -H "Authorization: Bearer ${DATABRICKS_TOKEN}"
 
-          # upload do zip
-          curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/files${WS_FILE}?overwrite=true" \
+          # Upload events.json
+          curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/files${WS_DIR}/events.json?overwrite=true" \
             -H "Authorization: Bearer ${DATABRICKS_TOKEN}" \
             -H "Content-Type: application/octet-stream" \
-            --data-binary "@${LOCAL_ZIP}"
+            --data-binary "@${EVENTS_FILE}"
 
-          echo "WS_FILE=${WS_FILE}"
+          # Upload fights.jsonl
+          curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/files${WS_DIR}/fights.jsonl?overwrite=true" \
+            -H "Authorization: Bearer ${DATABRICKS_TOKEN}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@${FIGHTS_FILE}"
+
+          # Upload fighters.jsonl
+          curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/files${WS_DIR}/fighters.jsonl?overwrite=true" \
+            -H "Authorization: Bearer ${DATABRICKS_TOKEN}" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@${FIGHTERS_FILE}"
+
+          echo "WS_DIR=${WS_DIR}"
 
       - name: Trigger Databricks job
         env:
@@ -86,15 +100,23 @@ jobs:
           DATABRICKS_USER: ${{ secrets.DATABRICKS_USER }}
         run: |
           RUN_DATE=$(date -u +%F)
-          LANDING_ZIP="/Users/${DATABRICKS_USER}/ufc-lakehouse/landing/dt=${RUN_DATE}/ufc_landing.zip"
+          LANDING_DIR="/Users/${DATABRICKS_USER}/ufc-lakehouse/landing/dt=${RUN_DATE}"
+
+          cat > payload.json <<EOF
+          {
+            "job_id": ${DATABRICKS_JOB_ID},
+            "notebook_params": {
+              "landing_dir": "${LANDING_DIR}",
+              "run_date": "${RUN_DATE}",
+              "db_token": "${DATABRICKS_TOKEN}"
+            }
+          }
+          EOF
+
+          echo "Payload keys (no token shown):"
+          cat payload.json | sed 's/"db_token": ".*"/"db_token": "***"/'
 
           curl -sS --location --request POST "https://${DATABRICKS_HOST}/api/2.2/jobs/run-now" \
             --header "Authorization: Bearer ${DATABRICKS_TOKEN}" \
             --header "Content-Type: application/json" \
-            --data "{
-              \"job_id\": ${DATABRICKS_JOB_ID},
-              \"notebook_params\": {
-                \"landing_zip\": \"${LANDING_ZIP}\",
-                \"run_date\": \"${RUN_DATE}\"
-              }
-            }"
+            --data @payload.json
