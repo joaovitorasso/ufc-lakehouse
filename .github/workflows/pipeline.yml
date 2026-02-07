@@ -55,42 +55,54 @@ jobs:
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           DATABRICKS_USER: ${{ secrets.DATABRICKS_USER }}
         run: |
+          set -euo pipefail
           RUN_DATE=${RUN_DATE:-$(date -u +%F)}
 
-          OUT_DIR="out/dt=${RUN_DATE}"
-
-          EVENTS_FILE="${OUT_DIR}/events.json"
-          FIGHTS_FILE="${OUT_DIR}/fights.jsonl"
-          FIGHTERS_FILE="${OUT_DIR}/fighters.jsonl"
-
-          test -f "${EVENTS_FILE}"
-          test -f "${FIGHTS_FILE}"
-          test -f "${FIGHTERS_FILE}"
+          LOCAL_DIR="out/dt=${RUN_DATE}"
+          echo "LOCAL_DIR=${LOCAL_DIR}"
+          ls -lah "${LOCAL_DIR}"
 
           WS_DIR="/Users/${DATABRICKS_USER}/ufc-lakehouse/landing/dt=${RUN_DATE}"
+          echo "WS_DIR=${WS_DIR}"
 
-          curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/directories${WS_DIR}" \
+          # helper: URL-encode (python é o jeito mais simples no runner)
+          urlencode() {
+            python - << 'PY'
+      import sys, urllib.parse
+      print(urllib.parse.quote(sys.argv[1], safe=""))
+      PY
+          }
+
+          WS_DIR_ENC=$(python - <<PY
+      import urllib.parse
+      print(urllib.parse.quote("${WS_DIR}", safe=""))
+      PY
+          )
+
+          # 1) cria diretório
+          echo "Creating dir..."
+          curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/directories?path=${WS_DIR_ENC}" \
             -H "Authorization: Bearer ${DATABRICKS_TOKEN}"
 
-          # Upload events.json
-          curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/files${WS_DIR}/events.json?overwrite=true" \
-            -H "Authorization: Bearer ${DATABRICKS_TOKEN}" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary "@${EVENTS_FILE}"
+          # 2) upload de cada arquivo (events.json, fights.jsonl, fighters.jsonl)
+          for f in events.json fights.jsonl fighters.jsonl; do
+            LOCAL_FILE="${LOCAL_DIR}/${f}"
+            test -f "${LOCAL_FILE}"
+            WS_FILE="${WS_DIR}/${f}"
+            WS_FILE_ENC=$(python - <<PY
+      import urllib.parse
+      print(urllib.parse.quote("${WS_FILE}", safe=""))
+      PY
+            )
 
-          # Upload fights.jsonl
-          curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/files${WS_DIR}/fights.jsonl?overwrite=true" \
-            -H "Authorization: Bearer ${DATABRICKS_TOKEN}" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary "@${FIGHTS_FILE}"
+            echo "Uploading ${LOCAL_FILE} -> ${WS_FILE}"
+            curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/files?path=${WS_FILE_ENC}&overwrite=true" \
+              -H "Authorization: Bearer ${DATABRICKS_TOKEN}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@${LOCAL_FILE}"
+          done
 
-          # Upload fighters.jsonl
-          curl -sS -X PUT "https://${DATABRICKS_HOST}/api/2.0/fs/files${WS_DIR}/fighters.jsonl?overwrite=true" \
-            -H "Authorization: Bearer ${DATABRICKS_TOKEN}" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary "@${FIGHTERS_FILE}"
-
-          echo "WS_DIR=${WS_DIR}"
+          echo "✅ Upload finished"
 
       - name: Set RUN_DATE
         run: echo "RUN_DATE=$(date -u +%F)" >> $GITHUB_ENV
