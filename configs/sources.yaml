@@ -1,0 +1,3 @@
+ufcstats:
+  completed_events_url: "http://ufcstats.com/statistics/events/completed?page=all"
+  upcoming_events_url: "http://ufcstats.com/statistics/events/upcoming?page=all"

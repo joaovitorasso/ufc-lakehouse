@@ -1,0 +1,17 @@
+data_dir: ${DATA_DIR:-./data}
+
+http:
+  user_agent: ${USER_AGENT:-Mozilla/5.0 (ufc-lakehouse)}
+  timeout_seconds: ${HTTP_TIMEOUT_SECONDS:-20}
+  retries: 4
+  backoff_factor: 0.6
+  polite_delay_seconds: ${POLITE_DELAY_SECONDS:-0.6}
+  max_requests_per_minute: 80
+
+pipeline:
+  dt_format: "%Y-%m-%d"
+  write_parquet_if_available: true
+  # Limite opcional para testes (0 = sem limite)
+  limit_events: 0
+  limit_fights_per_event: 0
+  limit_fighters: 0

@@ -1,79 +1,52 @@
-# ufc-lakehouse (Databricks Free Edition friendly)
+# ufc-lakehouse
 
-Este projeto constrói um mini *lakehouse* de dados do **ufcstats.com** usando:
+Pipeline estilo *Lakehouse* (RAW → Bronze → Silver → Gold) para coletar e modelar dados do UFC Stats (eventos, lutas e lutadores).
 
-- **GitHub Actions** para **extrair** (porque o Databricks Free Edition pode bloquear DNS/egress)
-- Upload do resultado (ZIP) para o **DBFS** via API
-- **Databricks** para ingerir e transformar em **Delta** (Bronze/Silver/Gold)
+> Fonte: ufcstats.com (coleta via `requests` + `BeautifulSoup`).  
+> Este projeto salva snapshots HTML em `data/raw/html` para permitir reprocessamento sem bater no site.
 
-## Arquitetura
+## Estrutura (resumo)
 
-1. GitHub Actions roda `tools/extract_landing.py`
-2. Gera `out/dt=YYYY-MM-DD/ufc_landing.zip` com:
-   - `events.json`
-   - `fights.jsonl`
-   - `fighters.jsonl`
-3. Workflow faz upload para `dbfs:/tmp/ufc/landing/dt=YYYY-MM-DD/ufc_landing.zip`
-4. Workflow chama `jobs/run-now` para executar um Job no Databricks que roda:
-   - `notebooks/10_ingest_landing.py`
-   - `notebooks/11_build_silver.py`
-   - `notebooks/12_build_gold.py`
+- **RAW**: índice de eventos (jsonl) + HTML de eventos/lutadores + metadados de execução
+- **BRONZE**: tabelas semi-estruturadas (jsonl) para eventos, lutas e lutadores
+- **SILVER**: dados curados (dedupe + chaves resolvidas)
+- **GOLD**: marts prontos para BI (agregações)
 
-## Como rodar localmente (teste rápido)
+## Como rodar
+
+1) Crie um ambiente e instale dependências:
 
 ```bash
-pip install -r requirements.txt
-export RUN_DATE=2026-02-06
-export MAX_EVENTS=10
-python tools/extract_landing.py
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
 ```
 
-Você verá o ZIP em `out/dt=2026-02-06/ufc_landing.zip`.
+2) Copie `.env.example` para `.env` e ajuste se quiser.
 
-## Configurar GitHub Actions
+3) Execute via CLI:
 
-Crie **Repository Secrets**:
+```bash
+# roda tudo (raw -> bronze -> silver -> gold)
+python -m ufc_pipeline run all
 
-- `DATABRICKS_HOST` (sem https://)  
-  Ex: `adb-1234567890123456.7.azuredatabricks.net`
-- `DATABRICKS_TOKEN` (PAT do Databricks)
-- `DATABRICKS_JOB_ID` (ID do Job que você criar no Databricks)
-- `MAX_EVENTS` (opcional, ex: `20`)
+# rodar por estágio
+python -m ufc_pipeline run raw
+python -m ufc_pipeline run bronze
+python -m ufc_pipeline run silver
+python -m ufc_pipeline run gold
+```
 
-O workflow está em `.github/workflows/pipeline.yml`.
+## Saídas
 
-## Configurar Databricks
+- `data/raw/...` snapshots e metadados (run_id, dt)
+- `data/bronze/...` jsonl de eventos/lutas/lutadores
+- `data/silver/...` curado (jsonl/parquet)
+- `data/gold/marts/...` marts (jsonl/parquet)
+- `data/exports/...` exportações auxiliares (csv/parquet)
 
-1. Importe os notebooks:
-   - `notebooks/10_ingest_landing.py`
-   - `notebooks/11_build_silver.py`
-   - `notebooks/12_build_gold.py`
+## Observações importantes
 
-2. Crie um **Job** com 3 tasks (em sequência):
-   - Task 1: `10_ingest_landing.py` (Notebook params: `landing_zip`, `run_date`)
-   - Task 2: `11_build_silver.py`
-   - Task 3: `12_build_gold.py`
-
-3. Pegue o **Job ID** e coloque no secret `DATABRICKS_JOB_ID`.
-
-## Tabelas geradas
-
-**Bronze**
-- `bronze_ufc_events`
-- `bronze_ufc_fights`
-- `bronze_ufc_fighters`
-
-**Silver**
-- `silver_ufc_events`
-- `silver_ufc_fights`
-- `silver_ufc_fighters`
-- `silver_ufc_fighter_fights`
-
-**Gold**
-- `gold_ufc_wins_by_fighter`
-- `gold_ufc_fights_by_method`
-
-## Observações
-
-- Para manter o pipeline rápido e gentil com o site, usamos `MAX_EVENTS` (padrão 20).
-- Se quiser histórico maior, aumente `MAX_EVENTS` — mas isso aumenta tempo de execução.
+- O site pode mudar HTML. Por isso o RAW salva snapshots.
+- Respeite o site: use as opções de `POLITE_DELAY_SECONDS` e `MAX_REQUESTS_PER_MINUTE` no `configs/settings.yaml`.
+- Este repositório não inclui dados coletados por padrão. A pasta `data/` fica no `.gitignore`.
